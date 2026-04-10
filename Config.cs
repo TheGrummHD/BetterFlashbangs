@@ -11,7 +11,7 @@ public class Config : IConfig
     public bool Debug { get; set; } = false;
 
     [Description("Distance between player and flashbang.")]
-    public int Distance { get; set; } = 10;
+    public int Distance { get; set; } = 30;
 
     [Description("Flashbangs explode timer (<2.7s)")]
     public float FuseTime { get; set; } = 1.5f;
