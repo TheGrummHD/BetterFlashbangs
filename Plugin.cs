@@ -1,23 +1,24 @@
 using System;
-using AdminToys;
 using Exiled.API.Enums;
 using Exiled.API.Features;
+using Exiled.API.Features.Pickups.Projectiles;
 using Exiled.Events.EventArgs.Player;
 using MEC;
-using Mirror;
-using ProjectMER.Features;
 using UnityEngine;
-using Object = UnityEngine.Object;
+using Exiled.API.Features.Toys;
+using Light = Exiled.API.Features.Toys.Light;
 
 namespace BetterFlashbangs;
 
 public class Plugin : Plugin<Config>
 {
+    const int FlashbangMask = 1208221697; // FlashbangGrenade.BlindingMask;
+
     public override string Name => "BetterFlashbangs";
     public override string Prefix => "BetterFlashbangs";
     public override string Author => "@grummhd";
     public override Version Version => new(1, 0, 0);
-    public override Version RequiredExiledVersion => new (9, 13, 3);
+    public override Version RequiredExiledVersion => new(9, 13, 3);
 
     public override void OnEnabled()
     {
@@ -30,16 +31,16 @@ public class Plugin : Plugin<Config>
             Log.Error(e);
             throw;
         }
-        
+
         Exiled.Events.Handlers.Player.ThrownProjectile += Thrown;
-        
+
         base.OnEnabled();
     }
 
     public override void OnDisabled()
     {
         Exiled.Events.Handlers.Player.ThrownProjectile -= Thrown;
-        
+
         base.OnDisabled();
     }
 
@@ -47,101 +48,69 @@ public class Plugin : Plugin<Config>
     {
         if (ev.Throwable.Type == ItemType.GrenadeFlash)
         {
-            var flashbang = ev.Throwable.Projectile;
+            Projectile? flashbang = ev.Throwable.Projectile;
 
             Timing.CallDelayed(Config.FuseTime, () =>
             {
                 flashbang.Destroy();
-                PlaySound("flashbang", flashbang.Position, ev.Player.Id);
+                PlaySound(ev.Player, "flashbang");
 
-                LightSourceToy lightSourceToy = Object.Instantiate(PrefabManager.LightSource);
+                var light = Light.Create(flashbang.Position);
+                light.Range = 100;
+                light.Intensity = 700;
+                light.Color = Color.white;
 
-                lightSourceToy.NetworkLightColor = new Color(67, 67, 67);
-
-                lightSourceToy.NetworkLightRange = 100;
-                lightSourceToy.NetworkLightIntensity = 700;
-                lightSourceToy.transform.position = flashbang.Position;
-
-                NetworkServer.Spawn(lightSourceToy.gameObject);
-
-                PrimitiveObjectToy primitive = Object.Instantiate(PrefabManager.PrimitiveObject);
-                primitive.transform.localScale = new Vector3(.5f, .5f, .5f);
-
-                primitive.NetworkPrimitiveFlags = PrimitiveFlags.Visible;
-                primitive.NetworkPrimitiveType = PrimitiveType.Cube;
-                primitive.NetworkMaterialColor = new Color(
-                    2550f,
-                    2550f,
-                    2550f,
-                    2550f
-                );
-
-                primitive.transform.position = flashbang.Position;
+                var primitive = Primitive.Create(PrimitiveType.Cube, flashbang.Position, new Vector3(.5f, .5f, .5f));
+                primitive.Collidable = false;
+                primitive.Visible = true;
+                primitive.Color = Color.white;
 
                 Timing.CallDelayed(0.1f, () =>
                 {
-                    NetworkServer.Destroy(primitive.gameObject);
-                    NetworkServer.Destroy(lightSourceToy.gameObject);
+                    primitive.Destroy();
+                    light.Destroy();
                 });
+
+                var maxDistance = Config.Distance * Config.Distance;
 
                 foreach (Player player in Player.List)
                 {
-                    int maxDistance = Config.Distance;
-                    float distance = Vector3.Distance(player.Position, flashbang.Position);
-                    
-                    if (distance > maxDistance) continue;
-                    
-                    bool flag = Physics.Linecast(flashbang.Position, player.CameraTransform.position, out var hit);
-                    if (flag)
+                    float distance = SqrDistance(player.Position, flashbang.Position);
+
+                    if (distance > maxDistance)
+                        continue;
+
+                    if (Physics.Linecast(flashbang.Position, player.Position, FlashbangMask))
+                        continue;
+
+                    Vector3 directionToFlashbang = (flashbang.Position - player.CameraTransform.position).normalized;
+
+                    if (Vector3.Dot(player.CameraTransform.forward, directionToFlashbang) > 0)
                     {
-                        var root = hit.collider.transform.root;
-                        if (!Player.TryGet(root.gameObject, out Player p)) continue;
-                    }
-
-                    Vector3 p1 = player.CameraTransform.position + player.CameraTransform.forward * 1;
-
-                    float line = Vector3.Distance(flashbang.Position, p1);
-                    var hypotenuse = Math.Sqrt(distance * distance + 1);
-
-                    if (hypotenuse > line)
-                    {
-                        // flash
-                        int duration;
-
-                        if (distance >= 35)
+                        int duration = distance switch
                         {
-                            duration = 1;
-                        }
-                        else if (distance >= 20)
-                        {
-                            duration = 2;
-                        }
-                        else if (distance >= 10)
-                        {
-                            duration = 3;
-                        }
-                        else
-                        {
-                            duration = 4;
-                        }
+                            >= 35 * 35 => 1,
+                            >= 20 * 20 => 2,
+                            >= 10 * 10 => 3,
+                            _ => 4,
+                        };
 
-                        player.EnableEffect(EffectType.Flashed, duration: duration);
+                        player.EnableEffect(EffectType.Flashed, duration);
                     }
                 }
             });
         }
     }
 
-    public void PlaySound(string soundName, Vector3 position, int playerId)
+    public static float SqrDistance(Vector3 a, Vector3 b) => (a - b).sqrMagnitude;
+
+    public void PlaySound(Player player, string soundName)
     {
-        AudioPlayer audioPlayer = AudioPlayer.CreateOrGet($"flashbang{playerId}", onIntialCreation: (p) =>
-        {
-            p.AddSpeaker("Main", isSpatial: true, minDistance: 5f, maxDistance: 20f); 
-        }, destroyWhenAllClipsPlayed:true);
-        
+        AudioPlayer audioPlayer = AudioPlayer.CreateOrGet($"flashbang{player.Id}", onIntialCreation: (p) => { p.AddSpeaker("Main", isSpatial: true, minDistance: 5f, maxDistance: 20f); }, destroyWhenAllClipsPlayed: true);
+
         audioPlayer.TryGetSpeaker("Main", out var speaker);
-        speaker.Position = position;
-        
+        speaker.Position = player.Position;
+
         audioPlayer.AddClip(soundName);
     }
 }
