@@ -52,7 +52,7 @@ public class Plugin : Plugin<Config>
             Timing.CallDelayed(Config.FuseTime, () =>
             {
                 flashbang.Destroy();
-                PlaySound(ev.Player, "flashbang");
+                PlaySound("flashbang", flashbang.Position, ev.Player.Id);
 
                 LightSourceToy lightSourceToy = Object.Instantiate(PrefabManager.LightSource);
 
@@ -87,25 +87,23 @@ public class Plugin : Plugin<Config>
                 foreach (Player player in Player.List)
                 {
                     int maxDistance = Config.Distance;
-                    var direction = player.CameraTransform.position - flashbang.Position;
-                    bool flag = Physics.Raycast(flashbang.Position, direction, out var raycastHit, maxDistance);
+                    float distance = Vector3.Distance(player.Position, flashbang.Position);
+                    
+                    if (distance > maxDistance) continue;
+                    
+                    bool flag = Physics.Linecast(flashbang.Position, player.CameraTransform.position, out var hit);
                     if (flag)
                     {
-                        var root = raycastHit.collider.transform.root;
+                        var root = hit.collider.transform.root;
                         if (!Player.TryGet(root.gameObject, out Player p)) continue;
                     }
 
-                    float distance = Vector3.Distance(player.Position, flashbang.Position);
-
-                    if (distance > maxDistance) continue;
-
                     Vector3 p1 = player.CameraTransform.position + player.CameraTransform.forward * 1;
 
-                    float g = Vector3.Distance(flashbang.Position, p1);
-                    float aboba = distance * distance + 1;
-                    var gy = Math.Sqrt(aboba);
+                    float line = Vector3.Distance(flashbang.Position, p1);
+                    var hypotenuse = Math.Sqrt(distance * distance + 1);
 
-                    if (gy > g)
+                    if (hypotenuse > line)
                     {
                         // flash
                         int duration;
@@ -134,15 +132,15 @@ public class Plugin : Plugin<Config>
         }
     }
 
-    public void PlaySound(Player player, string soundName)
+    public void PlaySound(string soundName, Vector3 position, int playerId)
     {
-        AudioPlayer audioPlayer = AudioPlayer.CreateOrGet($"flashbang{player.Id}", onIntialCreation: (p) =>
+        AudioPlayer audioPlayer = AudioPlayer.CreateOrGet($"flashbang{playerId}", onIntialCreation: (p) =>
         {
             p.AddSpeaker("Main", isSpatial: true, minDistance: 5f, maxDistance: 20f); 
         }, destroyWhenAllClipsPlayed:true);
         
         audioPlayer.TryGetSpeaker("Main", out var speaker);
-        speaker.Position = player.Position;
+        speaker.Position = position;
         
         audioPlayer.AddClip(soundName);
     }
