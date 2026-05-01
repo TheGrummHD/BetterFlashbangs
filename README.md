@@ -1,3 +1,4 @@
+![Downloads](https://img.shields.io/github/downloads/TheGrummHD/BetterFlashbangs/total)
 # BetterFlashbangs
 EXILED Plugin for better flashes
 
